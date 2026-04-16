@@ -21,9 +21,9 @@ REM Start PostgreSQL
 echo 📦 Starting PostgreSQL...
 docker run -d ^
     --name postgres ^
-    -e POSTGRES_USER=postgres.pfkdsrgjwkwxjqjzfjyx ^
-    -e POSTGRES_PASSWORD=1Sw0f6d0ZPaHaOSM ^
-    -e POSTGRES_DB=postgres ^
+    -e POSTGRES_USER=admission_user ^
+    -e POSTGRES_PASSWORD=secure_password_change_me ^
+    -e POSTGRES_DB=admission_system ^
     -p 5432:5432 ^
     postgres:15-alpine 2>nul
 
