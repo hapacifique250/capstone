@@ -1,0 +1,337 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Enums
+enum UserRole {
+  ADMIN
+  APPLICANT
+}
+
+enum EducationPathway {
+  REB
+  TVET
+}
+
+enum ApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  ADMITTED
+  WAITLISTED
+  REJECTED
+  ACCEPTED
+}
+
+enum AddmissionStatus {
+  ADMITTED
+  WAITLISTED
+  REJECTED
+}
+
+// Users
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      UserRole @default(APPLICANT)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applicant Applicant?
+
+  @@map("users")
+}
+
+// Applicants
+model Applicant {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  pathway     EducationPathway
+  gender      String
+  district    String
+  dateOfBirth DateTime
+
+  // For REB pathway
+  rebResults REBResult?
+
+  // For TVET pathway
+  tvetResults TVETResult?
+
+  // Unified competency profile
+  competencies Competency?
+
+  // Applications
+  applications Application[]
+  admissions   Admission[]
+
+  academicHistory  String? // JSON or text
+  extracurriculars String? // JSON
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pathway])
+  @@index([district])
+  @@map("applicants")
+}
+
+// REB Academic Results
+model REBResult {
+  id          String    @id @default(cuid())
+  applicantId String    @unique
+  applicant   Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  // Subjects and grades
+  subjects      String // JSON: {subject: grade, ...}
+  totalPoints   Float
+  gradeAverage  Float
+  yearCompleted Int
+  schoolName    String
+  schoolCode    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("reb_results")
+}
+
+// TVET Competency Results
+model TVETResult {
+  id          String    @id @default(cuid())
+  applicantId String    @unique
+  applicant   Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  // Trade/specialization
+  trade          String
+  specialization String
+  level          Int // Level 1-4
+
+  // Competency scores
+  competencies  String // JSON: {competency: score, ...}
+  finalGrade    String // A-F
+  yearCompleted Int
+  institution   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tvet_results")
+}
+
+// Unified Competency Profile
+model Competency {
+  id          String    @id @default(cuid())
+  applicantId String    @unique
+  applicant   Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  // Standardized competency scores (0-100)
+  mathSkill      Float @default(0)
+  technicalSkill Float @default(0)
+  scienceSkill   Float @default(0)
+  communication  Float @default(0)
+  problemSolving Float @default(0)
+
+  // Overall competency score
+  overallScore Float @default(0)
+
+  // Metadata
+  mappedOnDate  DateTime @default(now())
+  mappingSource String // "REB" or "TVET"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("competencies")
+}
+
+// Programs
+model Program {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+  college     String
+
+  // Capacity
+  capacity       Int
+  availableSlots Int @default(0)
+
+  // Prerequisites
+  acceptsReb  Boolean @default(true)
+  acceptsTvet Boolean @default(true)
+
+  // Competency requirements (minimum scores)
+  minMathSkill      Float @default(0)
+  minTechnicalSkill Float @default(0)
+  minScienceSkill   Float @default(0)
+  minCommunication  Float @default(0)
+  minProblemSolving Float @default(0)
+
+  // Weighting for scoring
+  mathWeight           Float @default(0.2)
+  technicalWeight      Float @default(0.3)
+  scienceWeight        Float @default(0.2)
+  communicationWeight  Float @default(0.1)
+  problemSolvingWeight Float @default(0.2)
+
+  // Application management
+  applications Application[]
+  admissions   Admission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([college])
+  @@map("programs")
+}
+
+// Applications
+model Application {
+  id          String    @id @default(cuid())
+  applicantId String
+  applicant   Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id])
+
+  // Application choices (1, 2, or 3)
+  choicePriority Int // 1 = first choice, 2 = second, 3 = third
+
+  status      ApplicationStatus @default(DRAFT)
+  submittedAt DateTime?
+
+  // Scores and ranking
+  competencyScore  Float?
+  eligibilityScore Float?
+  finalScore       Float?
+  rank             Int?
+
+  // ML prediction
+  admissionProbability Float?
+  successProbability   Float?
+
+  // Decision
+  admissionStatus AddmissionStatus?
+  decisionReason  String?
+  decisionDate    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([applicantId, programId, choicePriority])
+  @@index([programId])
+  @@index([applicantId])
+  @@index([status])
+  @@index([finalScore])
+  @@map("applications")
+}
+
+// Admissions (Final decisions)
+model Admission {
+  id          String    @id @default(cuid())
+  applicantId String
+  applicant   Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  programId String
+  program   Program @relation(fields: [programId], references: [id])
+
+  status AddmissionStatus
+  reason String?
+
+  // Details
+  applicationId String
+  finalScore    Float
+  rank          Int
+
+  acceptedAt DateTime?
+  rejectedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([applicantId, programId])
+  @@index([programId])
+  @@index([status])
+  @@map("admissions")
+}
+
+// Fairness Audit
+model FairnessAudit {
+  id String @id @default(cuid())
+
+  // Audit date
+  auditDate DateTime @default(now())
+
+  // By category
+  byGender   String // JSON
+  byDistrict String // JSON
+  byPathway  String // JSON
+
+  // Statistics
+  totalApplicants Int
+  totalAdmitted   Int
+  totalRejected   Int
+
+  // Bias metrics
+  adverseImpact   Float?
+  disparateImpact Float?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+
+  @@map("fairness_audits")
+}
+
+// Admin Actions Log
+model AuditLog {
+  id String @id @default(cuid())
+
+  action     String // OVERRIDE_DECISION, BULK_IMPORT, etc.
+  entityType String // APPLICATION, ADMISSION, PROGRAM, etc.
+  entityId   String
+  changes    String // JSON: what changed
+  reason     String?
+
+  performedBy String // Admin email
+  performedAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+// ML Model Metrics
+model MLModelMetrics {
+  id String @id @default(cuid())
+
+  modelName    String
+  modelVersion String
+
+  accuracy  Float
+  precision Float
+  recall    Float
+  f1Score   Float
+
+  trainingDate   DateTime
+  evaluationDate DateTime?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+
+  @@map("ml_model_metrics")
+}
